@@ -1,0 +1,24 @@
+my-dashboard-app
+├── src
+│   ├── app
+│   │   ├── layout.tsx
+│   │   ├── page.tsx
+│   │   └── (dashboard)
+│   │       ├── dashboard
+│   │       ├── analytics
+│   │       ├── users
+│   │       ├── products
+│   │       ├── settings
+│   │       ├── reports
+│   │       └── profile
+│   ├── components
+│   │   ├── layout
+│   │   │   ├── Sidebar.tsx
+│   │   │   └── Navigation.tsx
+│   │   └── ui
+│   │       └── icons
+│   └── types
+│       └── index.ts
+├── tailwind.config.ts
+├── package.json
+└── README.md
