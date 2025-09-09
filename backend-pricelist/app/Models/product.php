@@ -2,12 +2,42 @@
 
 namespace App\Models;
 
-use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Product extends Model
 {
-    use HasFactory;
+    /**
+     * The table associated with the model.
+     *
+     * @var string
+     */
+    protected $table = 'products';
 
-    protected $fillable = ['model', 'description', 'details'];
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var array
+     */
+    protected $fillable = [
+        'sheet',
+        'row_index',
+        'model',
+        'description',
+        'harga',
+        'harga_num',
+        'details',
+    ];
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array
+     */
+    protected $casts = [
+        'row_index' => 'integer',
+        'harga_num' => 'decimal:2',
+        'details' => 'array', // Cast JSON to array for easier access
+        'created_at' => 'datetime',
+        'updated_at' => 'datetime',
+    ];
 }

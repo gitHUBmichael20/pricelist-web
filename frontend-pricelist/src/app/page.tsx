@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 import Analytics from "./dashboard/analytics";
 import Dashboard from "./dashboard/dashboard";
 import Products from "./dashboard/products";
 import Settings from "./dashboard/settings";
 import Account from "./dashboard/account";
-// import Link from "next/link";
 
 export default function Home() {
+  const router = useRouter();
   const [activePage, setActivePage] = useState("overview");
 
   const renderPage = () => {
@@ -40,6 +41,12 @@ export default function Home() {
     { key: "products", label: "List Products", icon: "inventory_2" },
     { key: "settings", label: "Settings", icon: "settings" },
   ];
+
+  // Logout function
+  const handleLogout = () => {
+    sessionStorage.removeItem("isAuthenticated");
+    router.push("/login");
+  };
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -154,13 +161,22 @@ export default function Home() {
             </ul>
           </div>
 
-          {/* Footer */}
-          <div className="absolute bottom-4 left-4 right-4">
+          {/* Footer with Logout */}
+          <div className="absolute bottom-4 left-4 right-4 space-y-2">
             <div className="flex items-center justify-center p-2 bg-blue-50 rounded-lg">
               <span className="text-xs text-blue-600 font-medium">
                 Arah Digital Teknologi
               </span>
             </div>
+
+            {/* Logout Button */}
+            <button
+              onClick={handleLogout}
+              className="w-full flex items-center justify-center p-2 rounded-lg bg-red-50 text-red-600 font-medium hover:bg-red-100 transition-all"
+            >
+              <span className="material-icons text-sm mr-2">logout</span>
+              Logout
+            </button>
           </div>
         </div>
       </aside>

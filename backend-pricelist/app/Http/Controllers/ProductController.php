@@ -5,33 +5,68 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use Illuminate\Support\Facades\Log;
+use App\Models\Product;
+use Illuminate\Http\JsonResponse;
 
 class ProductController extends Controller
 {
-    public function bacafile(Request $request)
+
+    // ProductController.php
+    public function getAllData(Request $request): JsonResponse
+    {
+        $perPage = $request->get('per_page', 20); // Default 20 items per page
+        $page = $request->get('page', 1);
+
+        $products = Product::paginate($perPage, ['*'], 'page', $page);
+
+        return response()->json([
+            'success' => true,
+            'data' => $products->items(),
+            'pagination' => [
+                'current_page' => $products->currentPage(),
+                'last_page' => $products->lastPage(),
+                'per_page' => $products->perPage(),
+                'total' => $products->total(),
+                'from' => $products->firstItem(),
+                'to' => $products->lastItem(),
+                'has_more_pages' => $products->hasMorePages(),
+                'prev_page_url' => $products->previousPageUrl(),
+                'next_page_url' => $products->nextPageUrl(),
+            ]
+        ]);
+    }
+
+    public function bacafile()
     {
         try {
-            // Default file path atau dari parameter
-            $filePath = $request->get('file', storage_path('app/public/testupload.xlsx'));
+            // File fixed (nggak dari request)
+            $filePath = storage_path('app/public/testupload.xlsx');
 
-            // Cek apakah file exists
             if (!file_exists($filePath)) {
                 return response()->json([
                     'success' => false,
-                    'message' => 'File tidak ditemukan: ' . $filePath,
-                    'data' => []
+                    'message' => 'File tidak ditemukan: ' . $filePath
                 ], 404);
             }
 
-            // Parse spreadsheet
+            // Parse Excel → array
             $result = $this->parseSpreadsheet($filePath);
 
+            if (!$result['success']) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Gagal parse data',
+                    'alerts'  => $result['alerts']
+                ], 400);
+            }
+
+            // Simpan ke database
+            $inserted = $this->saveProducts($result['products']);
+
             return response()->json([
-                'success' => $result['success'],
-                'message' => $result['success'] ? 'Data berhasil diparse' : 'Gagal parse data',
-                'alerts' => $result['alerts'] ?? [],
-                'total_products' => count($result['products']),
-                'data' => $result['products'],
+                'success' => true,
+                'message' => $inserted . ' data berhasil dimasukkan',
+                'total_products' => $inserted,
                 'generated_at' => now()->format('Y-m-d H:i:s')
             ]);
         } catch (\Exception $e) {
@@ -39,8 +74,7 @@ class ProductController extends Controller
 
             return response()->json([
                 'success' => false,
-                'message' => 'Terjadi kesalahan: ' . $e->getMessage(),
-                'data' => []
+                'message' => 'Terjadi kesalahan: ' . $e->getMessage()
             ], 500);
         }
     }
@@ -54,18 +88,14 @@ class ProductController extends Controller
         ];
 
         try {
-            // Load spreadsheet
             $spreadsheet = IOFactory::load($path);
             $products = [];
 
-            // Loop semua sheets
             foreach ($spreadsheet->getAllSheets() as $sheet) {
                 $sheetTitle = $sheet->getTitle();
-
-                // Convert ke array
                 $rows = $sheet->toArray(null, true, true, false);
 
-                // Remove empty rows
+                // Bersihkan baris kosong
                 $rows = array_values(array_filter($rows, function ($row) {
                     foreach ($row as $cell) {
                         if (trim((string)$cell) !== '') return true;
@@ -73,23 +103,24 @@ class ProductController extends Controller
                     return false;
                 }));
 
-                if (count($rows) < 1) continue;
+                if (count($rows) < 2) continue;
 
-                // Cek apakah table mode (ada header)
-                $headerRow = $rows[0];
-                $nonEmptyCols = 0;
-                foreach ($headerRow as $cell) {
-                    if (trim((string)$cell) !== '') $nonEmptyCols++;
+                // Ambil tabel sampai baris kosong
+                $tableRows = [];
+                foreach ($rows as $row) {
+                    $isEmpty = true;
+                    foreach ($row as $cell) {
+                        if (trim((string)$cell) !== '') {
+                            $isEmpty = false;
+                            break;
+                        }
+                    }
+                    if ($isEmpty && !empty($tableRows)) break;
+                    if (!$isEmpty) $tableRows[] = $row;
                 }
 
-                $isTableMode = $nonEmptyCols >= 2 && count($rows) >= 2;
-
-                if ($isTableMode) {
-                    // Table mode - ada header
-                    $products = array_merge($products, $this->parseTableMode($rows, $sheetTitle));
-                } else {
-                    // Simple mode - tanpa header yang jelas
-                    $products = array_merge($products, $this->parseSimpleMode($rows, $sheetTitle));
+                if (count($tableRows) >= 2) {
+                    $products = array_merge($products, $this->parseTableMode($tableRows, $sheetTitle));
                 }
             }
 
@@ -110,7 +141,6 @@ class ProductController extends Controller
         // Normalize headers
         $headers = array_map([$this, 'normalizeKey'], $headerRow);
 
-        // Build column mapping
         $columnMap = [];
         foreach ($headers as $index => $header) {
             if ($header !== '') {
@@ -118,12 +148,10 @@ class ProductController extends Controller
             }
         }
 
-        // Process data rows
         for ($rowIndex = 1; $rowIndex < count($rows); $rowIndex++) {
             $row = $rows[$rowIndex];
             $productData = [];
 
-            // Map columns to data
             foreach ($columnMap as $colIndex => $key) {
                 $value = $row[$colIndex] ?? '';
                 if (trim((string)$value) !== '') {
@@ -141,18 +169,13 @@ class ProductController extends Controller
                     break;
                 }
             }
-
-            if (!$productNameKey) {
-                $productNameKey = array_key_first($productData);
-            }
-
+            if (!$productNameKey) $productNameKey = array_key_first($productData);
             $productName = $productData[$productNameKey] ?? null;
 
             // Detect description
             $descriptionKey = $this->findDescriptionKey(array_keys($productData));
             $description = $descriptionKey ? ($productData[$descriptionKey] ?? null) : null;
 
-            // Fallback: find long text as description
             if (!$description) {
                 foreach ($productData as $value) {
                     if (strlen((string)$value) >= 100) {
@@ -162,18 +185,10 @@ class ProductController extends Controller
                 }
             }
 
-            // Remove name and description from details
-            if ($productNameKey && isset($productData[$productNameKey])) {
-                unset($productData[$productNameKey]);
-            }
-            if ($descriptionKey && isset($productData[$descriptionKey])) {
-                unset($productData[$descriptionKey]);
-            }
+            if ($productNameKey) unset($productData[$productNameKey]);
+            if ($descriptionKey) unset($productData[$descriptionKey]);
 
-            // Remove empty values from details
-            $productData = array_filter($productData, function ($value) {
-                return trim((string)$value) !== '';
-            });
+            $productData = array_filter($productData, fn($v) => trim((string)$v) !== '');
 
             $products[] = [
                 'sheet' => $sheetTitle,
@@ -186,40 +201,27 @@ class ProductController extends Controller
         return $products;
     }
 
-    private function parseSimpleMode($rows, $sheetTitle)
+    private function saveProducts(array $products)
     {
-        $products = [];
-
-        foreach ($rows as $row) {
-            if (!is_array($row)) continue;
-
-            $values = array_values($row);
-            $productName = trim((string)($values[0] ?? ''));
-            $description = trim((string)($values[1] ?? ''));
-
-            // Collect other columns as details
-            $details = [];
-            for ($i = 2; $i < count($values); $i++) {
-                $value = trim((string)$values[$i]);
-                if ($value !== '') {
-                    $details['col_' . ($i + 1)] = $value;
-                }
-            }
-
-            // Skip if completely empty
-            if ($productName === '' && empty($details) && $description === '') {
-                continue;
-            }
-
-            $products[] = [
-                'sheet' => $sheetTitle,
-                'product_name' => $productName ?: null,
-                'description' => $description ?: null,
-                'details' => $details
+        $data = [];
+        foreach ($products as $p) {
+            $data[] = [
+                'sheet'       => $p['sheet'] ?? null,
+                'model'       => $p['product_name'] ?? null,
+                'description' => $p['description'] ?? null,
+                'details'     => json_encode($p['details'] ?? []),
+                'created_at'  => now(),
+                'updated_at'  => now()
             ];
         }
 
-        return $products;
+        try {
+            Product::insert($data); // bulk insert
+            return count($data);
+        } catch (\Exception $e) {
+            Log::error("Gagal insert products: " . $e->getMessage());
+            return 0;
+        }
     }
 
     private function normalizeKey($string)
@@ -234,29 +236,21 @@ class ProductController extends Controller
     private function isProductKey($key)
     {
         $key = strtolower((string)$key);
-        $productKeywords = ['product', 'model', 'name', 'sku', 'code', 'title', 'type'];
-
-        foreach ($productKeywords as $keyword) {
-            if (strpos($key, $keyword) !== false) {
-                return true;
-            }
+        $keywords = ['product', 'model', 'name', 'sku', 'code', 'title', 'type', 'part', 'number'];
+        foreach ($keywords as $kw) {
+            if (strpos($key, $kw) !== false) return true;
         }
-
         return false;
     }
 
     private function findDescriptionKey($keys)
     {
         $descKeywords = ['desc', 'description', 'keterangan', 'note', 'notes'];
-
         foreach ($keys as $key) {
-            foreach ($descKeywords as $keyword) {
-                if (preg_match('/\b' . $keyword . '\b/i', $key)) {
-                    return $key;
-                }
+            foreach ($descKeywords as $kw) {
+                if (preg_match('/\b' . $kw . '\b/i', $key)) return $key;
             }
         }
-
         return null;
     }
 }
