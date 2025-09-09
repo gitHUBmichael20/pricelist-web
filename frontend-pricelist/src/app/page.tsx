@@ -66,7 +66,11 @@ export default function Home() {
                   person
                 </span>
               </div>
-              <span className="font-medium text-gray-800">John Doe</span>
+              <span className="font-medium text-gray-800">
+                {typeof window !== "undefined" && sessionStorage.getItem("name")
+                  ? sessionStorage.getItem("name")
+                  : "Guest"}
+              </span>
             </div>
 
             {/* User Menu */}

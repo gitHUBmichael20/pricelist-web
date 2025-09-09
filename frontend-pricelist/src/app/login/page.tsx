@@ -21,22 +21,24 @@ export default function Login() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          email,
-          password,
-        }),
+        body: JSON.stringify({ email, password }),
       });
 
       if (response.ok) {
         const data = await response.json();
-        sessionStorage.setItem("isAuthenticated", "true");
-        sessionStorage.setItem("token", data.token);
+
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem("isAuthenticated", "true");
+          sessionStorage.setItem("name", data.admin.name || "Admin");
+          sessionStorage.setItem("token", data.token || "");
+        }
+
         setStatus("success");
 
-        // kasih delay biar animasi keliatan
+        // delay biar animasi keliatan
         setTimeout(() => {
           router.push("/");
-        }, 1200);
+        }, 1000);
       } else {
         setStatus("error");
       }
@@ -50,17 +52,17 @@ export default function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <div className="max-w-md w-full space-y-8 p-8 bg-white rounded-xl shadow-lg">
+      <div className="max-w-md w-full p-8 space-y-8 bg-white rounded-xl shadow-lg">
         <div className="text-center">
           <h2 className="mt-6 text-3xl font-bold text-gray-900">
-            Welcome back
+            Welcome Back
           </h2>
           <p className="mt-2 text-sm text-gray-600">
             Please sign in to your account
           </p>
         </div>
 
-        {/* Status message */}
+        {/* Status Message */}
         {status === "success" && (
           <div className="p-3 mb-4 text-sm text-green-700 bg-green-100 rounded-lg animate-fade-in">
             ✅ Login successful! Redirecting...
@@ -72,7 +74,7 @@ export default function Login() {
           </div>
         )}
 
-        <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
+        <form className="space-y-6 mt-8" onSubmit={handleSubmit}>
           <div className="space-y-4">
             <div>
               <label
@@ -82,15 +84,15 @@ export default function Login() {
                 Email address
               </label>
               <input
-                id="email"
-                name="email"
                 type="email"
+                id="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-black"
               />
             </div>
+
             <div>
               <label
                 htmlFor="password"
@@ -99,9 +101,8 @@ export default function Login() {
                 Password
               </label>
               <input
-                id="password"
-                name="password"
                 type="password"
+                id="password"
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -110,45 +111,43 @@ export default function Login() {
             </div>
           </div>
 
-          <div>
-            <button
-              type="submit"
-              disabled={loading}
-              className={`w-full flex justify-center py-2 px-4 rounded-md shadow-sm text-sm font-medium text-white ${
-                loading
-                  ? "bg-blue-400 cursor-not-allowed"
-                  : "bg-blue-600 hover:bg-blue-700"
-              }`}
-            >
-              {loading ? (
-                <span className="flex items-center">
-                  <svg
-                    className="animate-spin h-5 w-5 mr-2 text-white"
-                    xmlns="http://www.w3.org/2000/svg"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    ></circle>
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"
-                    ></path>
-                  </svg>
-                  Signing in...
-                </span>
-              ) : (
-                "Sign in"
-              )}
-            </button>
-          </div>
+          <button
+            type="submit"
+            disabled={loading}
+            className={`w-full flex justify-center py-2 px-4 rounded-md shadow-sm text-sm font-medium text-white ${
+              loading
+                ? "bg-blue-400 cursor-not-allowed"
+                : "bg-blue-600 hover:bg-blue-700"
+            }`}
+          >
+            {loading ? (
+              <span className="flex items-center">
+                <svg
+                  className="animate-spin h-5 w-5 mr-2 text-white"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  ></circle>
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v4l3-3-3-3v4a8 8 0 100 16v-4l-3 3 3 3v-4a8 8 0 01-8-8z"
+                  ></path>
+                </svg>
+                Signing in...
+              </span>
+            ) : (
+              "Sign in"
+            )}
+          </button>
         </form>
       </div>
     </div>
