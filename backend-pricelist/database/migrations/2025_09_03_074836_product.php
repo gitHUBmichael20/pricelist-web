@@ -14,8 +14,6 @@ return new class extends Migration
             $table->integer('row_index')->nullable();
             $table->string('model')->nullable();
             $table->text('description')->nullable();
-            $table->string('harga')->nullable();
-            $table->decimal('harga_num', 20, 2)->nullable();
             $table->json('details')->nullable();
             $table->timestamps();
         });

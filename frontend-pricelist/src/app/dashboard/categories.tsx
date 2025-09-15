@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
+import {
+  ChevronLeftIcon,
+  ChevronRightIcon,
+  FolderIcon,
+} from "@heroicons/react/24/outline";
 
 type Product = {
   id: number;
@@ -9,6 +13,12 @@ type Product = {
   model: string;
   description?: string | null;
   details: Record<string, string | number>;
+};
+
+type Category = {
+  sheet: string;
+  count: number;
+  products: Product[];
 };
 
 type PaginationInfo = {
@@ -27,11 +37,14 @@ type ApiResponse = {
   pagination: PaginationInfo;
 };
 
-export default function ProductList() {
-  const [products, setProducts] = useState<Product[]>([]);
+export default function Categories() {
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<Category | null>(
+    null
+  );
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [pagination, setPagination] = useState<PaginationInfo>({
     current_page: 1,
     last_page: 1,
@@ -43,16 +56,17 @@ export default function ProductList() {
   });
 
   useEffect(() => {
-    fetchProducts(pagination.current_page);
-  }, [pagination.current_page]);
+    fetchCategories();
+  }, []);
 
-  const fetchProducts = async (page: number = 1) => {
+  const fetchCategories = async () => {
     try {
       setLoading(true);
       setError(null);
 
+      // Fetch all products first to group by categories
       const response = await fetch(
-        `http://192.168.1.49:8000/products/read?page=${page}&per_page=20`
+        `http://192.168.1.49:8000/products/read?page=1&per_page=1000`
       );
 
       if (!response.ok)
@@ -69,21 +83,34 @@ export default function ProductList() {
               : product.details,
         }));
 
-        setProducts(normalizedProducts);
-        setPagination(data.pagination);
+        // Group products by sheet
+        const categoryMap = new Map<string, Product[]>();
+        normalizedProducts.forEach((product) => {
+          if (!categoryMap.has(product.sheet)) {
+            categoryMap.set(product.sheet, []);
+          }
+          categoryMap.get(product.sheet)!.push(product);
+        });
+
+        // Convert to Category array
+        const categoriesArray = Array.from(categoryMap.entries()).map(
+          ([sheet, products]) => ({
+            sheet,
+            count: products.length,
+            products: products.sort((a, b) => a.model.localeCompare(b.model)),
+          })
+        );
+
+        // Sort categories by name
+        categoriesArray.sort((a, b) => a.sheet.localeCompare(b.sheet));
+        setCategories(categoriesArray);
       } else {
         setError("Invalid data format received");
       }
     } catch (error) {
-      setError("Failed to fetch products");
+      setError("Failed to fetch categories");
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handlePageChange = (page: number) => {
-    if (page >= 1 && page <= pagination.last_page) {
-      setPagination((prev) => ({ ...prev, current_page: page }));
     }
   };
 
@@ -102,30 +129,18 @@ export default function ProductList() {
     return str;
   };
 
-  const getPageNumbers = () => {
-    const { current_page, last_page } = pagination;
-    const pages = [];
-
-    if (last_page <= 5) {
-      for (let i = 1; i <= last_page; i++) pages.push(i);
-    } else {
-      if (current_page <= 3) {
-        pages.push(1, 2, 3, "...", last_page);
-      } else if (current_page >= last_page - 2) {
-        pages.push(1, "...", last_page - 2, last_page - 1, last_page);
-      } else {
-        pages.push(
-          1,
-          "...",
-          current_page - 1,
-          current_page,
-          current_page + 1,
-          "...",
-          last_page
-        );
-      }
-    }
-    return pages;
+  const getCategoryColor = (index: number) => {
+    const colors = [
+      "bg-blue-500",
+      "bg-green-500",
+      "bg-purple-500",
+      "bg-red-500",
+      "bg-yellow-500",
+      "bg-pink-500",
+      "bg-indigo-500",
+      "bg-teal-500",
+    ];
+    return colors[index % colors.length];
   };
 
   if (loading) {
@@ -142,7 +157,7 @@ export default function ProductList() {
         <div className="text-red-600 text-center">
           <p className="text-lg font-semibold">{error}</p>
           <button
-            onClick={() => fetchProducts(1)}
+            onClick={fetchCategories}
             className="mt-4 px-4 py-2 bg-blue-600 text-white rounded-lg"
           >
             Try Again
@@ -152,39 +167,103 @@ export default function ProductList() {
     );
   }
 
+  // Category view
+  if (!selectedCategory) {
+    return (
+      <div className="min-h-screen bg-gray-50">
+        <div className="px-4 py-4 sm:px-6 lg:px-8">
+          {/* Header */}
+          <div className="mb-6">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+              Product Categories
+            </h1>
+            <p className="text-sm text-gray-600 mt-2">
+              {categories.length} categories •{" "}
+              {categories.reduce((sum, cat) => sum + cat.count, 0)} total
+              products
+            </p>
+          </div>
+
+          {/* Categories Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            {categories.map((category, index) => (
+              <div
+                key={category.sheet}
+                onClick={() => setSelectedCategory(category)}
+                className="bg-white rounded-lg shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:-translate-y-1 overflow-hidden group"
+              >
+                {/* Colored header */}
+                <div className={`${getCategoryColor(index)} h-3`}></div>
+
+                <div className="p-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <FolderIcon className="h-8 w-8 text-gray-400 group-hover:text-gray-600 transition-colors" />
+                    <span className="text-2xl font-bold text-gray-900">
+                      {category.count}
+                    </span>
+                  </div>
+
+                  <h3 className="font-bold text-gray-900 mb-2 text-lg group-hover:text-blue-600 transition-colors">
+                    {category.sheet}
+                  </h3>
+
+                  <p className="text-sm text-gray-500">
+                    {category.count} product{category.count !== 1 ? "s" : ""}
+                  </p>
+
+                  {/* Preview of first few products */}
+                  <div className="mt-3 space-y-1">
+                    {category.products.slice(0, 3).map((product, idx) => (
+                      <div key={idx} className="text-xs text-gray-400 truncate">
+                        • {product.model}
+                      </div>
+                    ))}
+                    {category.count > 3 && (
+                      <div className="text-xs text-gray-400">
+                        ... and {category.count - 3} more
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Products in selected category view
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="px-4 py-4 sm:px-6 lg:px-8">
         {/* Header */}
         <div className="mb-6">
+          <button
+            onClick={() => setSelectedCategory(null)}
+            className="flex items-center text-blue-600 hover:text-blue-700 mb-4 text-sm"
+          >
+            <ChevronLeftIcon className="h-4 w-4 mr-1" />
+            Back to Categories
+          </button>
+
           <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-            Product Catalog
+            {selectedCategory.sheet}
           </h1>
-          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center mt-2 gap-2">
-            <p className="text-sm text-gray-600">
-              {pagination.total} total • Showing {pagination.from}-
-              {pagination.to}
-            </p>
-            <p className="text-sm text-gray-500">
-              Page {pagination.current_page} of {pagination.last_page}
-            </p>
-          </div>
+          <p className="text-sm text-gray-600 mt-2">
+            {selectedCategory.count} product
+            {selectedCategory.count !== 1 ? "s" : ""} in this category
+          </p>
         </div>
 
         {/* Products Grid */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
-          {products.map((product) => (
+          {selectedCategory.products.map((product) => (
             <div
               key={product.id}
               className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow flex flex-col h-full"
             >
               <div className="p-4 flex flex-col flex-grow">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs font-medium text-blue-600 bg-blue-50 px-2 py-1 rounded-full">
-                    {product.sheet}
-                  </span>
-                </div>
-
                 <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2 text-sm sm:text-base">
                   {product.model || "Unnamed Product"}
                 </h3>
@@ -195,10 +274,10 @@ export default function ProductList() {
                   </p>
                 )}
 
-                {/* Preview Details - grows to fill remaining space */}
+                {/* Preview Details */}
                 <div className="space-y-1 mb-4 flex-grow">
                   {Object.entries(product.details || {})
-                    .slice(0, 2)
+                    .slice(0, 3)
                     .map(([key, value]) => (
                       <div
                         key={key}
@@ -214,7 +293,6 @@ export default function ProductList() {
                     ))}
                 </div>
 
-                {/* Button always at bottom */}
                 <button
                   onClick={() => setSelectedProduct(product)}
                   className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors mt-auto"
@@ -225,99 +303,9 @@ export default function ProductList() {
             </div>
           ))}
         </div>
-
-        {/* Mobile-First Pagination */}
-        {pagination.last_page > 1 && (
-          <div className="bg-white rounded-lg shadow-sm p-4">
-            {/* Mobile Pagination */}
-            <div className="flex justify-between items-center sm:hidden mb-4">
-              <button
-                onClick={() => handlePageChange(pagination.current_page - 1)}
-                disabled={pagination.current_page === 1}
-                className={`flex items-center px-3 py-2 rounded-lg text-sm ${
-                  pagination.current_page === 1
-                    ? "text-gray-400"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <ChevronLeftIcon className="h-4 w-4 mr-1" />
-                Prev
-              </button>
-
-              <span className="text-sm text-gray-600">
-                {pagination.current_page} / {pagination.last_page}
-              </span>
-
-              <button
-                onClick={() => handlePageChange(pagination.current_page + 1)}
-                disabled={pagination.current_page === pagination.last_page}
-                className={`flex items-center px-3 py-2 rounded-lg text-sm ${
-                  pagination.current_page === pagination.last_page
-                    ? "text-gray-400"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                Next
-                <ChevronRightIcon className="h-4 w-4 ml-1" />
-              </button>
-            </div>
-
-            {/* Desktop Pagination */}
-            <div className="hidden sm:flex items-center justify-center space-x-2">
-              <button
-                onClick={() => handlePageChange(pagination.current_page - 1)}
-                disabled={pagination.current_page === 1}
-                className={`flex items-center px-3 py-2 rounded-lg text-sm ${
-                  pagination.current_page === 1
-                    ? "text-gray-400"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                <ChevronLeftIcon className="h-4 w-4" />
-                Previous
-              </button>
-
-              {getPageNumbers().map((page, index) => (
-                <button
-                  key={index}
-                  onClick={() =>
-                    typeof page === "number" && handlePageChange(page)
-                  }
-                  disabled={page === "..."}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium ${
-                    typeof page === "number"
-                      ? page === pagination.current_page
-                        ? "bg-blue-600 text-white"
-                        : "text-gray-700 hover:bg-gray-100"
-                      : "text-gray-400 cursor-default"
-                  }`}
-                >
-                  {page}
-                </button>
-              ))}
-
-              <button
-                onClick={() => handlePageChange(pagination.current_page + 1)}
-                disabled={pagination.current_page === pagination.last_page}
-                className={`flex items-center px-3 py-2 rounded-lg text-sm ${
-                  pagination.current_page === pagination.last_page
-                    ? "text-gray-400"
-                    : "text-gray-700 hover:bg-gray-100"
-                }`}
-              >
-                Next
-                <ChevronRightIcon className="h-4 w-4" />
-              </button>
-            </div>
-
-            <div className="text-center text-xs text-gray-500 mt-2">
-              {pagination.per_page} per page
-            </div>
-          </div>
-        )}
       </div>
 
-      {/* Modal */}
+      {/* Product Detail Modal */}
       {selectedProduct && (
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"

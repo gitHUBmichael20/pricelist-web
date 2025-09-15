@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 
-export default function Login() {
+export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -17,35 +17,18 @@ export default function Login() {
     setStatus(null);
 
     try {
-      const response = await fetch("http://192.168.1.49:8000/api/admin/login", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ email, password }),
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-
-        if (typeof window !== "undefined") {
-          sessionStorage.setItem("isAuthenticated", "true");
-          sessionStorage.setItem("name", data.admin.name || "Admin");
-          sessionStorage.setItem(
-            "email",
-            data.admin.email || "admin@example.com"
-          );
-          sessionStorage.setItem("token", data.token || "");
-        }
-
-        setStatus("success");
-
-        setTimeout(() => {
-          router.push("/"); // redirect ke dashboard
-        }, 1000);
-      } else {
-        setStatus("error");
+      // contoh langsung set session
+      if (typeof window !== "undefined") {
+        sessionStorage.setItem("isAuthenticated", "true");
+        sessionStorage.setItem("name", email || "Guest User");
+        sessionStorage.setItem("email", email || "guest@example.com");
       }
+
+      setStatus("success");
+
+      setTimeout(() => {
+        router.push("/users/dashboard-user");
+      }, 1000);
     } catch (err) {
       console.error(err);
       setStatus("error");
@@ -59,21 +42,16 @@ export default function Login() {
       <div className="max-w-md w-full p-8 space-y-8 bg-white rounded-xl shadow-lg">
         <div className="text-center">
           <h2 className="mt-6 text-3xl font-bold text-gray-900">
-            Welcome Back Admin
+            Welcome Back User 👋
           </h2>
           <p className="mt-2 text-sm text-gray-600">
-            Please sign in to your account
+            Please sign in to your user account
           </p>
         </div>
 
         {status === "success" && (
           <div className="p-3 mb-4 text-sm text-green-700 bg-green-100 rounded-lg animate-fade-in">
             ✅ Login successful! Redirecting...
-          </div>
-        )}
-        {status === "error" && (
-          <div className="p-3 mb-4 text-sm text-red-700 bg-red-100 rounded-lg animate-fade-in">
-            ❌ Invalid email or password
           </div>
         )}
 
@@ -89,10 +67,11 @@ export default function Login() {
               <input
                 type="email"
                 id="email"
-                required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-black"
+                disabled={loading}
+                required
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-black disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
 
@@ -106,10 +85,11 @@ export default function Login() {
               <input
                 type="password"
                 id="password"
-                required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-black"
+                disabled={loading}
+                required
+                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 text-black disabled:opacity-50 disabled:cursor-not-allowed"
               />
             </div>
           </div>
@@ -117,25 +97,20 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className={`w-full flex justify-center py-2 px-4 rounded-md shadow-sm text-sm font-medium text-white ${
-              loading
-                ? "bg-blue-400 cursor-not-allowed"
-                : "bg-blue-600 hover:bg-blue-700"
-            }`}
+            className="w-full flex justify-center py-2 px-4 rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {loading ? "Signing in..." : "Sign in"}
           </button>
         </form>
 
-        {/* Tambahin link ke login user */}
         <div className="text-center mt-4">
           <p className="text-sm text-gray-600">
-            Not an admin?{" "}
+            Not a user?{" "}
             <Link
-              href="/users/login-user"
+              href="/login-admin"
               className="font-medium text-blue-600 hover:text-blue-800"
             >
-              Login as User now
+              Login as Admin now
             </Link>
           </p>
         </div>
