@@ -1,40 +1,86 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import {
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  FolderIcon,
-} from "@heroicons/react/24/outline";
+import { useState, useEffect, useMemo } from "react";
+import { ChevronLeftIcon, FolderIcon } from "@heroicons/react/24/outline";
+import { BASE_URL } from "@/config/api";
+
+type PriceLike = string | number | null | undefined;
 
 type Product = {
   id: number;
   sheet: string;
   model: string;
   description?: string | null;
+  price?: number | null;
   details: Record<string, string | number>;
 };
 
-type Category = {
-  sheet: string;
-  count: number;
-  products: Product[];
+type Category = { sheet: string; count: number; products: Product[] };
+
+type ApiResponse = { success?: boolean; data: Product[] };
+
+const formatRupiah = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
+
+const parseRupiahLoose = (v: PriceLike): number | null => {
+  if (v == null) return null;
+  if (typeof v === "number" && Number.isFinite(v)) return Math.round(v);
+  if (typeof v !== "string") return null;
+  let s = v.trim();
+  if (!s) return null;
+  s = s.replace(/(rp|idr|\s)/gi, "");
+  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s)) {
+    const noDot = s.replace(/\./g, "");
+    const intOnly = noDot.replace(/,\d+$/, "");
+    const n = Number(intOnly);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (/^\d+(,\d+)?$/.test(s)) {
+    const f = parseFloat(s.replace(",", "."));
+    return Number.isFinite(f) ? Math.round(f) : null;
+  }
+  if (/^\d+(\.\d+)?$/.test(s)) {
+    const f = parseFloat(s);
+    return Number.isFinite(f) ? Math.round(f) : null;
+  }
+  const digits = s.replace(/[^\d]/g, "");
+  if (!digits) return null;
+  const clipped = digits.length > 12 ? digits.slice(0, 12) : digits;
+  const n = Number(clipped);
+  return Number.isFinite(n) ? n : null;
 };
 
-type PaginationInfo = {
-  current_page: number;
-  last_page: number;
-  per_page: number;
-  total: number;
-  from: number;
-  to: number;
-  has_more_pages: boolean;
-};
+const PRICE_KEYS = [
+  "price list (idr) to dpp",
+  "price list (idr) msrp",
+  "partner price",
+  "bottom price",
+  "msrp",
+  "dpp",
+  "price",
+];
+const isPriceKey = (k: string) => PRICE_KEYS.includes(k.toLowerCase().trim());
+const formatKey = (k: string) =>
+  k.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
-type ApiResponse = {
-  success?: boolean;
-  data: Product[];
-  pagination: PaginationInfo;
+const pickMainPrice = (p: Product): number | null => {
+  const d = p.details || {};
+  const dpp = (d["Price List (IDR) to DPP"] ??
+    d["Price List (IDR) To DPP"] ??
+    d["DPP"]) as PriceLike;
+  const nDpp = parseRupiahLoose(dpp);
+  if (nDpp) return nDpp;
+  if (typeof p.price === "number" && p.price > 0) return p.price;
+  const msrp = (d["Price List (IDR) MSRP"] ??
+    d["MSRP"] ??
+    d["Price (MSRP)"] ??
+    d["Price"]) as PriceLike;
+  const nMsrp = parseRupiahLoose(msrp);
+  if (nMsrp) return nMsrp;
+  const partner = parseRupiahLoose(d["Partner Price"] as PriceLike);
+  if (partner) return partner;
+  const bottom = parseRupiahLoose(d["Bottom Price"] as PriceLike);
+  if (bottom) return bottom;
+  return null;
 };
 
 export default function Categories() {
@@ -45,108 +91,57 @@ export default function Categories() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [pagination, setPagination] = useState<PaginationInfo>({
-    current_page: 1,
-    last_page: 1,
-    per_page: 20,
-    total: 0,
-    from: 0,
-    to: 0,
-    has_more_pages: false,
-  });
 
-  useEffect(() => {
-    fetchCategories();
-  }, []);
+  const totalProducts = useMemo(
+    () => categories.reduce((s, c) => s + c.count, 0),
+    [categories]
+  );
 
   const fetchCategories = async () => {
     try {
       setLoading(true);
       setError(null);
-
-      // Fetch all products first to group by categories
-      const response = await fetch(
-        `http://192.168.1.49:8000/products/read?page=1&per_page=1000`
-      );
-
-      if (!response.ok)
-        throw new Error(`HTTP error! status: ${response.status}`);
-
-      const data: ApiResponse = await response.json();
-
-      if (data.success && Array.isArray(data.data)) {
-        const normalizedProducts = data.data.map((product) => ({
-          ...product,
-          details:
-            typeof product.details === "string"
-              ? JSON.parse(product.details || "{}")
-              : product.details,
-        }));
-
-        // Group products by sheet
-        const categoryMap = new Map<string, Product[]>();
-        normalizedProducts.forEach((product) => {
-          if (!categoryMap.has(product.sheet)) {
-            categoryMap.set(product.sheet, []);
-          }
-          categoryMap.get(product.sheet)!.push(product);
-        });
-
-        // Convert to Category array
-        const categoriesArray = Array.from(categoryMap.entries()).map(
-          ([sheet, products]) => ({
-            sheet,
-            count: products.length,
-            products: products.sort((a, b) => a.model.localeCompare(b.model)),
-          })
-        );
-
-        // Sort categories by name
-        categoriesArray.sort((a, b) => a.sheet.localeCompare(b.sheet));
-        setCategories(categoriesArray);
-      } else {
-        setError("Invalid data format received");
+      const r = await fetch(`${BASE_URL}/products/read?page=1&per_page=10000`);
+      if (!r.ok) throw new Error(String(r.status));
+      const data: ApiResponse = await r.json();
+      if (!data.success || !Array.isArray(data.data))
+        throw new Error("bad payload");
+      const normalized: Product[] = data.data.map((p) => ({
+        ...p,
+        details:
+          typeof p.details === "string"
+            ? JSON.parse(p.details || "{}")
+            : p.details,
+      }));
+      const map = new Map<string, Product[]>();
+      for (const p of normalized) {
+        const arr = map.get(p.sheet) ?? [];
+        arr.push(p);
+        map.set(p.sheet, arr);
       }
-    } catch (error) {
+      const arr: Category[] = Array.from(map.entries())
+        .map(([sheet, products]) => ({
+          sheet,
+          count: products.length,
+          products: products.sort((a, b) => a.model.localeCompare(b.model)),
+        }))
+        .sort((a, b) => a.sheet.localeCompare(b.sheet));
+      setCategories(arr);
+    } catch {
       setError("Failed to fetch categories");
     } finally {
       setLoading(false);
     }
   };
 
-  const formatKey = (key: string) =>
-    key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
-
-  const formatValue = (value: string | number) => {
-    const str = String(value);
-    if (!isNaN(Number(str)) && str.length > 4) {
-      return (
-        <span className="font-bold text-green-600">
-          Rp {Number(str).toLocaleString("id-ID")}
-        </span>
-      );
-    }
-    return str;
-  };
-
-  const getCategoryColor = (index: number) => {
-    const colors = [
-      "bg-blue-500",
-      "bg-green-500",
-      "bg-purple-500",
-      "bg-red-500",
-      "bg-yellow-500",
-      "bg-pink-500",
-      "bg-indigo-500",
-      "bg-teal-500",
-    ];
-    return colors[index % colors.length];
-  };
+  useEffect(() => {
+    fetchCategories();
+  }, []);
 
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
       </div>
     );
   }
@@ -167,65 +162,54 @@ export default function Categories() {
     );
   }
 
-  // Category view
   if (!selectedCategory) {
     return (
-      <div className="min-h-screen bg-gray-50">
-        <div className="px-4 py-4 sm:px-6 lg:px-8">
-          {/* Header */}
+      <div className="min-h-screen bg-gray-100">
+        <div className="container mx-auto px-4 py-8">
           <div className="mb-6">
-            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+            <h1 className="text-3xl font-bold text-gray-800">
               Product Categories
             </h1>
             <p className="text-sm text-gray-600 mt-2">
-              {categories.length} categories •{" "}
-              {categories.reduce((sum, cat) => sum + cat.count, 0)} total
-              products
+              {categories.length} categories • {totalProducts} total products
             </p>
           </div>
-
-          {/* Categories Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {categories.map((category, index) => (
-              <div
-                key={category.sheet}
-                onClick={() => setSelectedCategory(category)}
-                className="bg-white rounded-lg shadow-sm hover:shadow-lg transition-all duration-200 cursor-pointer transform hover:-translate-y-1 overflow-hidden group"
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+            {categories.map((c) => (
+              <button
+                key={c.sheet}
+                onClick={() => setSelectedCategory(c)}
+                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 text-left overflow-hidden"
               >
-                {/* Colored header */}
-                <div className={`${getCategoryColor(index)} h-3`}></div>
-
-                <div className="p-6">
-                  <div className="flex items-center justify-between mb-4">
-                    <FolderIcon className="h-8 w-8 text-gray-400 group-hover:text-gray-600 transition-colors" />
-                    <span className="text-2xl font-bold text-gray-900">
-                      {category.count}
+                <div className="p-5">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="p-2 rounded-md bg-gray-100">
+                        <FolderIcon className="h-5 w-5 text-gray-500" />
+                      </div>
+                      <h3 className="font-semibold text-gray-900">{c.sheet}</h3>
+                    </div>
+                    <span className="text-lg font-bold text-gray-900">
+                      {c.count}
                     </span>
                   </div>
-
-                  <h3 className="font-bold text-gray-900 mb-2 text-lg group-hover:text-blue-600 transition-colors">
-                    {category.sheet}
-                  </h3>
-
-                  <p className="text-sm text-gray-500">
-                    {category.count} product{category.count !== 1 ? "s" : ""}
-                  </p>
-
-                  {/* Preview of first few products */}
                   <div className="mt-3 space-y-1">
-                    {category.products.slice(0, 3).map((product, idx) => (
-                      <div key={idx} className="text-xs text-gray-400 truncate">
-                        • {product.model}
+                    {c.products.slice(0, 3).map((p) => (
+                      <div
+                        key={p.id}
+                        className="text-xs text-gray-500 truncate"
+                      >
+                        • {p.model}
                       </div>
                     ))}
-                    {category.count > 3 && (
+                    {c.count > 3 && (
                       <div className="text-xs text-gray-400">
-                        ... and {category.count - 3} more
+                        …and {c.count - 3} more
                       </div>
                     )}
                   </div>
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         </div>
@@ -233,21 +217,18 @@ export default function Categories() {
     );
   }
 
-  // Products in selected category view
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="px-4 py-4 sm:px-6 lg:px-8">
-        {/* Header */}
+    <div className="min-h-screen bg-gray-100">
+      <div className="container mx-auto px-4 py-8">
         <div className="mb-6">
           <button
             onClick={() => setSelectedCategory(null)}
-            className="flex items-center text-blue-600 hover:text-blue-700 mb-4 text-sm"
+            className="flex items-center text-blue-600 hover:text-blue-700 mb-3 text-sm"
           >
             <ChevronLeftIcon className="h-4 w-4 mr-1" />
             Back to Categories
           </button>
-
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+          <h1 className="text-3xl font-bold text-gray-800">
             {selectedCategory.sheet}
           </h1>
           <p className="text-sm text-gray-600 mt-2">
@@ -255,121 +236,119 @@ export default function Categories() {
             {selectedCategory.count !== 1 ? "s" : ""} in this category
           </p>
         </div>
-
-        {/* Products Grid */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-6">
-          {selectedCategory.products.map((product) => (
-            <div
-              key={product.id}
-              className="bg-white rounded-lg shadow-sm hover:shadow-md transition-shadow flex flex-col h-full"
-            >
-              <div className="p-4 flex flex-col flex-grow">
-                <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2 text-sm sm:text-base">
-                  {product.model || "Unnamed Product"}
-                </h3>
-
-                {product.description && (
-                  <p className="text-gray-600 text-xs sm:text-sm mb-3 line-clamp-2">
-                    {product.description}
-                  </p>
-                )}
-
-                {/* Preview Details */}
-                <div className="space-y-1 mb-4 flex-grow">
-                  {Object.entries(product.details || {})
-                    .slice(0, 3)
-                    .map(([key, value]) => (
-                      <div
-                        key={key}
-                        className="flex justify-between items-center"
-                      >
-                        <span className="text-xs text-gray-500 truncate">
-                          {formatKey(key)}
-                        </span>
-                        <span className="text-xs text-gray-700 ml-2 flex-shrink-0">
-                          {formatValue(value)}
-                        </span>
-                      </div>
-                    ))}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {selectedCategory.products.map((p) => {
+            const mainPrice = pickMainPrice(p);
+            return (
+              <div
+                key={p.id}
+                className="bg-white rounded-lg shadow-md hover:shadow-lg transition-all duration-200 overflow-hidden flex flex-col"
+              >
+                <div className="p-4 flex-grow">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-1 rounded-full">
+                      {p.sheet}
+                    </span>
+                    {mainPrice !== null && (
+                      <span className="text-xs font-semibold text-green-700 bg-green-50 px-2 py-1 rounded-full">
+                        {formatRupiah(mainPrice)}
+                      </span>
+                    )}
+                  </div>
+                  <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2">
+                    {p.model || "Unnamed Product"}
+                  </h3>
+                  {p.description && (
+                    <p className="text-sm text-gray-700 mb-3 line-clamp-2">
+                      {p.description}
+                    </p>
+                  )}
+                  <div className="space-y-2 mb-4">
+                    {Object.entries(p.details || {})
+                      .filter(([k]) => !isPriceKey(k))
+                      .slice(0, 3)
+                      .map(([k, v]) => (
+                        <div
+                          key={k}
+                          className="flex justify-between text-sm gap-3"
+                        >
+                          <span className="text-gray-500">{formatKey(k)}</span>
+                          <span className="font-medium text-gray-800 text-right">
+                            {String(v)}
+                          </span>
+                        </div>
+                      ))}
+                  </div>
+                  <button
+                    onClick={() => setSelectedProduct(p)}
+                    className="w-full px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    View Details
+                  </button>
                 </div>
-
-                <button
-                  onClick={() => setSelectedProduct(product)}
-                  className="w-full px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-medium transition-colors mt-auto"
-                >
-                  View Details
-                </button>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </div>
-
-      {/* Product Detail Modal */}
       {selectedProduct && (
         <div
           className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4"
           onClick={() => setSelectedProduct(null)}
         >
           <div
-            className="bg-white rounded-lg shadow-xl w-full max-w-md sm:max-w-lg md:max-w-2xl max-h-[85vh] overflow-hidden flex flex-col"
+            className="bg-white rounded-lg shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            {/* Header */}
-            <div className="p-4 sm:p-5 border-b border-gray-200 flex justify-between items-center">
-              <div className="min-w-0 flex-1">
-                <h3 className="text-base sm:text-lg font-bold text-gray-900 truncate">
-                  {selectedProduct.model || "Unnamed Product"}
-                </h3>
-                <span className="text-xs sm:text-sm text-blue-600 font-medium">
-                  {selectedProduct.sheet}
-                </span>
-              </div>
-              <button
-                onClick={() => setSelectedProduct(null)}
-                className="text-gray-400 hover:text-gray-600 p-1 flex-shrink-0"
-              >
-                <span className="text-lg sm:text-xl">×</span>
-              </button>
-            </div>
-
-            {/* Content */}
-            <div className="p-4 sm:p-5 overflow-y-auto flex-1">
-              {selectedProduct.description && (
-                <div className="mb-4 sm:mb-5">
-                  <h4 className="font-semibold text-gray-900 text-sm sm:text-base mb-2">
-                    Description
-                  </h4>
-                  <p className="text-gray-700 text-xs sm:text-sm">
-                    {selectedProduct.description}
-                  </p>
-                </div>
-              )}
-
-              {Object.keys(selectedProduct.details || {}).length > 0 && (
+            <div className="p-6">
+              <div className="flex justify-between items-center mb-4">
                 <div>
-                  <h4 className="font-semibold text-gray-900 text-sm sm:text-base mb-2 sm:mb-3">
-                    Specifications
-                  </h4>
-                  <div className="space-y-2 sm:space-y-3">
-                    {Object.entries(selectedProduct.details).map(
-                      ([key, value]) => (
-                        <div
-                          key={key}
-                          className="bg-gray-50 p-2 sm:p-3 rounded-lg"
-                        >
-                          <h5 className="text-xs sm:text-sm font-medium text-gray-700 mb-1">
-                            {formatKey(key)}
-                          </h5>
-                          <div className="text-xs sm:text-sm text-gray-900 font-semibold">
-                            {formatValue(value)}
-                          </div>
-                        </div>
-                      )
-                    )}
-                  </div>
+                  <h2 className="text-2xl font-bold text-gray-800">
+                    {selectedProduct.model || "Unnamed Product"}
+                  </h2>
+                  <span className="text-xs font-medium text-blue-700 bg-blue-50 px-2 py-1 rounded-full inline-block mt-1">
+                    {selectedProduct.sheet}
+                  </span>
                 </div>
+                <button
+                  onClick={() => setSelectedProduct(null)}
+                  className="text-gray-500 hover:text-gray-700"
+                >
+                  ✕
+                </button>
+              </div>
+              {(() => {
+                const main = pickMainPrice(selectedProduct);
+                return main !== null ? (
+                  <p className="text-green-700 font-semibold mb-4">
+                    {formatRupiah(main)}
+                  </p>
+                ) : null;
+              })()}
+              {selectedProduct.description && (
+                <p className="text-gray-700 mb-4">
+                  {selectedProduct.description}
+                </p>
               )}
+              <div className="space-y-3">
+                {Object.entries(selectedProduct.details || {}).map(([k, v]) => {
+                  const n = isPriceKey(k)
+                    ? parseRupiahLoose(v as PriceLike)
+                    : null;
+                  return (
+                    <div key={k} className="flex justify-between gap-3">
+                      <span className="text-gray-600">{formatKey(k)}</span>
+                      <span
+                        className={`font-medium text-right ${
+                          n ? "text-green-700" : "text-gray-800"
+                        }`}
+                      >
+                        {n ? formatRupiah(n) : String(v)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>

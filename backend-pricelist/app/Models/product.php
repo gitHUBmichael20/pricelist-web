@@ -13,6 +13,7 @@ class Product extends Model
         'sheet',
         'row_index',
         'model',
+        'price',
         'description',
         'details',
     ];

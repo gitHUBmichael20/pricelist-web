@@ -2,12 +2,23 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { BASE_URL } from "@/config/api";
 
 interface FormData {
   name: string;
   email: string;
   password: string;
 }
+
+type UpdateOk = {
+  admin?: { name?: string; email?: string };
+  message?: string;
+};
+
+type UpdateErr = {
+  message?: string;
+  errors?: Record<string, string[]>;
+};
 
 export default function AdminEdit() {
   const router = useRouter();
@@ -18,6 +29,7 @@ export default function AdminEdit() {
   });
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<null | "success" | "error">(null);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
   useEffect(() => {
@@ -39,34 +51,65 @@ export default function AdminEdit() {
     e.preventDefault();
     setLoading(true);
     setStatus(null);
+    setErrorMsg(null);
 
     try {
       const token = sessionStorage.getItem("token") || "";
-      const response = await fetch(
-        "http://192.168.1.49:8000/api/admin/updateprofile/1",
-        {
-          method: "PUT",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(formData),
-        }
-      );
+
+      // Build payload: hanya kirim password jika tidak kosong
+      const payload: Partial<FormData> = {
+        name: formData.name,
+        email: formData.email,
+      };
+      if (formData.password.trim() !== "") {
+        payload.password = formData.password.trim();
+      }
+
+      const response = await fetch(`${BASE_URL}/api/admin/updateprofile/1`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      let data: UpdateOk | UpdateErr | null = null;
+      try {
+        data = (await response.json()) as UpdateOk | UpdateErr;
+      } catch {
+        data = null;
+      }
 
       if (response.ok) {
-        const data = await response.json();
-        sessionStorage.setItem("name", data.admin.name);
-        sessionStorage.setItem("email", data.admin.email);
+        const ok = (data ?? {}) as UpdateOk;
+
+        if (typeof window !== "undefined") {
+          if (ok.admin?.name) sessionStorage.setItem("name", ok.admin.name);
+          if (ok.admin?.email) sessionStorage.setItem("email", ok.admin.email);
+        }
+
         setStatus("success");
         setTimeout(() => setStatus(null), 3000);
       } else {
+        const msg =
+          (data as UpdateErr)?.message ||
+          ((data as UpdateErr)?.errors
+            ? Object.values((data as UpdateErr).errors || {})
+                .flat()
+                .join(", ")
+            : null) ||
+          `HTTP ${response.status} – Failed to update profile`;
+
         setStatus("error");
+        setErrorMsg(msg);
         setTimeout(() => setStatus(null), 5000);
       }
     } catch (err) {
       console.error(err);
       setStatus("error");
+      setErrorMsg("Network error. Please check your connection.");
       setTimeout(() => setStatus(null), 5000);
     } finally {
       setLoading(false);
@@ -102,7 +145,7 @@ export default function AdminEdit() {
               <span className="material-icons text-red-500 mr-2 text-lg">
                 error
               </span>
-              Failed to update profile. Please try again.
+              {errorMsg || "Failed to update profile. Please try again."}
             </div>
           )}
 
@@ -215,13 +258,6 @@ export default function AdminEdit() {
               </button>
             </div>
           </form>
-        </div>
-
-        {/* Footer Info */}
-        <div className="text-center mt-6">
-          <p className="text-xs text-gray-500">
-            Last updated: {new Date().toLocaleDateString("id-ID")}
-          </p>
         </div>
       </div>
 

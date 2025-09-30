@@ -14,6 +14,7 @@ return new class extends Migration
             $table->integer('row_index')->nullable();
             $table->string('model')->nullable();
             $table->text('description')->nullable();
+            $table->integer('price')->nullable();
             $table->json('details')->nullable();
             $table->timestamps();
         });

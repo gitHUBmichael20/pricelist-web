@@ -1,18 +1,24 @@
 "use client";
-
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Categories from "./dashboard/categories";
-import Dashboard from "./dashboard/dashboard";
+import DashboardContent from "./dashboard/dashboard";
 import Products from "./dashboard/products";
 import User from "./dashboard/userList";
 import Settings from "./dashboard/settings";
 import Account from "./dashboard/account";
+import Organize from "./dashboard/organize"; // Assuming you have the Organize component created.
 
-export default function Home() {
+export default function Dashboard() {
   const router = useRouter();
   const [activePage, setActivePage] = useState("overview");
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+  useEffect(() => {
+    if (!sessionStorage.getItem("isAuthenticated")) {
+      router.push("/login");
+    }
+  }, [router]);
 
   const renderPage = () => {
     switch (activePage) {
@@ -26,17 +32,15 @@ export default function Home() {
         return <Settings />;
       case "userList":
         return <User />;
+      case "organize":
+        return <Organize />; // Render the Organize component here
       default:
-        return <Dashboard />;
+        return <DashboardContent />;
     }
   };
 
-  const userMenuItems = [
-    { key: "account", label: "Account", icon: "account_circle" },
-    { key: "history", label: "History", icon: "history" },
-  ];
-
   const dashboardItems = [
+    { key: "account", label: "Account", icon: "account_circle" },
     { key: "overview", label: "Overview", icon: "dashboard" },
     { key: "categories", label: "Categories", icon: "category" },
   ];
@@ -45,6 +49,7 @@ export default function Home() {
     { key: "products", label: "List Products", icon: "inventory_2" },
     { key: "userList", label: "User List", icon: "people" },
     { key: "settings", label: "Settings", icon: "settings" },
+    { key: "organize", label: "Organize", icon: "folder" }, // New "Organize" option with the "folder" icon
   ];
 
   const handleMenuClick = (key: string) => {
@@ -95,7 +100,6 @@ export default function Home() {
                 <span className="material-icons text-gray-600">close</span>
               </button>
             </div>
-
             <h2 className="text-lg font-semibold text-gray-600 mb-4 hidden md:block">
               Dashboard Overview
             </h2>
@@ -114,113 +118,86 @@ export default function Home() {
               </span>
             </div>
 
-            {/* User Menu */}
-            <ul className="space-y-1 mb-6">
-              {userMenuItems.map((item) => (
-                <li key={item.key}>
-                  <button
-                    onClick={() => handleMenuClick(item.key)}
-                    className={`flex items-center w-full p-2 rounded-lg group transition-all duration-200 ${
-                      activePage === item.key
-                        ? "bg-blue-50 text-blue-600"
-                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                    }`}
-                  >
-                    <span
-                      className={`material-icons text-sm mr-3 flex-shrink-0 ${
+            {/* Dashboards Section */}
+            <div className="mb-6">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+                Dashboards
+              </h3>
+              <ul className="space-y-1">
+                {dashboardItems.map((item) => (
+                  <li key={item.key}>
+                    <button
+                      onClick={() => handleMenuClick(item.key)}
+                      className={`flex items-center w-full p-2 rounded-lg group transition-all duration-200 ${
                         activePage === item.key
-                          ? "text-blue-600"
-                          : "text-gray-400"
+                          ? "bg-blue-50 text-blue-600"
+                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                       }`}
                     >
-                      {item.icon}
-                    </span>
-                    <span className="text-sm">{item.label}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Dashboards Section */}
-          <div className="mb-6">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-              Dashboards
-            </h3>
-            <ul className="space-y-1">
-              {dashboardItems.map((item) => (
-                <li key={item.key}>
-                  <button
-                    onClick={() => handleMenuClick(item.key)}
-                    className={`flex items-center w-full p-2 rounded-lg group transition-all duration-200 ${
-                      activePage === item.key
-                        ? "bg-blue-50 text-blue-600"
-                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                    }`}
-                  >
-                    <span
-                      className={`material-icons text-sm mr-3 flex-shrink-0 ${
-                        activePage === item.key
-                          ? "text-blue-600"
-                          : "text-gray-400"
-                      }`}
-                    >
-                      {item.icon}
-                    </span>
-                    <span className="text-sm font-medium">{item.label}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Pages Section */}
-          <div className="mb-6">
-            <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
-              Pages
-            </h3>
-            <ul className="space-y-1">
-              {pageItems.map((item) => (
-                <li key={item.key}>
-                  <button
-                    onClick={() => handleMenuClick(item.key)}
-                    className={`flex items-center w-full p-2 rounded-lg group transition-all duration-200 ${
-                      activePage === item.key
-                        ? "bg-blue-50 text-blue-600"
-                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                    }`}
-                  >
-                    <span
-                      className={`material-icons text-sm mr-3 flex-shrink-0 ${
-                        activePage === item.key
-                          ? "text-blue-600"
-                          : "text-gray-400"
-                      }`}
-                    >
-                      {item.icon}
-                    </span>
-                    <span className="text-sm font-medium">{item.label}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Footer */}
-          <div className="mt-auto space-y-2">
-            <div className="flex items-center justify-center p-2 bg-blue-50 rounded-lg">
-              <span className="text-xs text-blue-600 font-medium text-center">
-                Arah Digital Teknologi
-              </span>
+                      <span
+                        className={`material-icons text-sm mr-3 flex-shrink-0 ${
+                          activePage === item.key
+                            ? "text-blue-600"
+                            : "text-gray-400"
+                        }`}
+                      >
+                        {item.icon}
+                      </span>
+                      <span className="text-sm font-medium">{item.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
             </div>
 
-            <button
-              onClick={handleLogout}
-              className="w-full flex items-center justify-center p-2 rounded-lg bg-red-50 text-red-600 font-medium hover:bg-red-100 transition-all"
-            >
-              <span className="material-icons text-sm mr-2">logout</span>
-              <span className="text-sm">Logout</span>
-            </button>
+            {/* Pages Section */}
+            <div className="mb-6">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-3">
+                Pages
+              </h3>
+              <ul className="space-y-1">
+                {pageItems.map((item) => (
+                  <li key={item.key}>
+                    <button
+                      onClick={() => handleMenuClick(item.key)}
+                      className={`flex items-center w-full p-2 rounded-lg group transition-all duration-200 ${
+                        activePage === item.key
+                          ? "bg-blue-50 text-blue-600"
+                          : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
+                      }`}
+                    >
+                      <span
+                        className={`material-icons text-sm mr-3 flex-shrink-0 ${
+                          activePage === item.key
+                            ? "text-blue-600"
+                            : "text-gray-400"
+                        }`}
+                      >
+                        {item.icon}
+                      </span>
+                      <span className="text-sm font-medium">{item.label}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            {/* Footer */}
+            <div className="mt-auto space-y-2">
+              <div className="flex items-center justify-center p-2 bg-blue-50 rounded-lg">
+                <span className="text-xs text-blue-600 font-medium text-center">
+                  Arah Digital Teknologi
+                </span>
+              </div>
+
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center justify-center p-2 rounded-lg bg-red-50 text-red-600 font-medium hover:bg-red-100 transition-all"
+              >
+                <span className="material-icons text-sm mr-2">logout</span>
+                <span className="text-sm">Logout</span>
+              </button>
+            </div>
           </div>
         </div>
       </aside>
@@ -241,12 +218,6 @@ export default function Home() {
           </div>
         </div>
       </div>
-
-      {/* Material Icons Link */}
-      <link
-        href="https://fonts.googleapis.com/icon?family=Material+Icons"
-        rel="stylesheet"
-      />
     </div>
   );
 }
