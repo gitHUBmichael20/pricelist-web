@@ -20,3 +20,13 @@ Route::prefix('users')->group(function () {
     Route::put('/update/{id}', [UserController::class, 'update']);
     Route::delete('/delete/{id}', [UserController::class, 'destroy']);
 });
+
+Route::prefix('products')->group(function () {
+    Route::get('/read', [ProductController::class, 'getAllData']);
+    Route::get('/categories', [ProductController::class, 'getCategories']);
+    Route::get('/search', [ProductController::class, 'search']);
+    Route::post('/store', [ProductController::class, 'store']);
+    Route::delete('/delete-sheet', [ProductController::class, 'deleteSheet']);
+    Route::get('/sheets', [ProductController::class, 'getExistingSheets']);
+    Route::put('/update-sheet', [ProductController::class, 'updateSheet']);
+});

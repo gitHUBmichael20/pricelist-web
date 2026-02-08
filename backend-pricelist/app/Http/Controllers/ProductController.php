@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use App\Models\Product;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\JsonResponse;
 
 class ProductController extends Controller
@@ -48,33 +49,36 @@ class ProductController extends Controller
         ]);
     }
 
+    // In ProductController.php - replace the entire getCategories method
     public function getCategories(Request $request)
     {
-        // ambil query param `sheet`
-        $sheet = $request->query('sheet');
+        // Get all products grouped by sheet
+        $products = Product::all();
 
-        if (!$sheet) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Parameter "sheet" is required'
-            ], 400);
-        }
-
-        // query database
-        $products = Product::where('sheet', $sheet)->get();
-
-        if ($products->isEmpty()) {
-            return response()->json([
-                'success' => false,
-                'message' => "No products found for sheet '{$sheet}'"
-            ], 404);
-        }
+        // Group by sheet and format exactly as frontend expects
+        $groupedData = $products->groupBy('sheet')->map(function ($items, $sheet) {
+            return [
+                'sheet' => $sheet,
+                'count' => $items->count(),
+                'products' => $items->map(function ($product) {
+                    // Ensure details is always an array
+                    return [
+                        'id' => $product->id,
+                        'sheet' => $product->sheet,
+                        'model' => $product->model,
+                        'description' => $product->description,
+                        'price' => $product->price,
+                        'details' => is_string($product->details)
+                            ? json_decode($product->details, true)
+                            : ($product->details ?? [])
+                    ];
+                })->sortBy('model')->values() // Sort and reset keys
+            ];
+        })->values(); // Reset to indexed array
 
         return response()->json([
             'success' => true,
-            'sheet'   => $sheet,
-            'count'   => $products->count(),
-            'data'    => $products
+            'data' => $groupedData
         ]);
     }
 
@@ -190,39 +194,188 @@ class ProductController extends Controller
     // Method to handle data upload
     public function store(Request $request): JsonResponse
     {
+        // Expecting top-level JSON array of products
         $data = $request->validate([
-            '*.model' => 'required|string',
-            '*.price' => 'nullable|numeric',
-            '*.description' => 'nullable|string',
-            '*.sheet' => 'required|string',
-            '*.details' => 'nullable|array',
+            '*.model'       => 'required|string',
+            '*.price'       => 'nullable',      // accept string or number; we coerce below
+            '*.description' => 'nullable',      // accept string/array; we normalize below
+            '*.sheet'       => 'required|string',
+            '*.details'     => 'nullable',      // accept array/string/null; we JSON-encode below
         ]);
 
-        $products = Product::insert($data);
-
-        return response()->json(['success' => true, 'data' => $products], 201);
-    }
-
-    public function update(Request $request): JsonResponse
-    {
-        $data = $request->validate([
-            '*.model' => 'required|string',
-            '*.price' => 'nullable|numeric',
-            '*.description' => 'nullable|string',
-            '*.sheet' => 'required|string',
-            '*.details' => 'nullable|array',
-        ]);
-
-        // Here you can either update by sheet or model, depending on your use case
-        foreach ($data as $productData) {
-            Product::updateOrCreate(
-                ['sheet' => $productData['sheet'], 'model' => $productData['model']], // criteria for updating
-                $productData // the data to update
-            );
+        if (empty($data)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No data provided',
+            ], 400);
         }
 
-        return response()->json(['success' => true, 'message' => 'Products updated successfully'], 200);
+        // Use the sheet from the first row (as in your original)
+        $sheetName = (string) ($data[0]['sheet'] ?? '');
+
+        if ($sheetName === '') {
+            return response()->json([
+                'success' => false,
+                'message' => 'Sheet name is required on the first item',
+            ], 422);
+        }
+
+        // Prevent duplicate sheet upload
+        if (Product::where('sheet', $sheetName)->exists()) {
+            return response()->json([
+                'success' => false,
+                'message' => "Sheet name '{$sheetName}' already exists in database. Please change the sheet name or use the update function.",
+                'sheet'   => $sheetName,
+            ], 409);
+        }
+
+        // Normalize rows for insert
+        foreach ($data as $index => &$item) {
+            // Required fields are already validated; coerce to safe scalar types
+            $item['model'] = (string) $item['model'];
+            $item['sheet'] = (string) $item['sheet'];
+
+            // Price: allow numeric or string; coerce to float or null
+            if (array_key_exists('price', $item)) {
+                if (is_string($item['price'])) {
+                    $num = preg_replace('/[^\d\.\-]/', '', $item['price']);
+                    $item['price'] = ($num === '' ? null : (float) $num);
+                } elseif (is_numeric($item['price'])) {
+                    $item['price'] = (float) $item['price'];
+                } else {
+                    $item['price'] = null;
+                }
+            } else {
+                $item['price'] = null;
+            }
+
+            // Description: ensure string or null; if array/object, JSON-encode
+            if (array_key_exists('description', $item)) {
+                if (is_array($item['description']) || is_object($item['description'])) {
+                    $item['description'] = json_encode($item['description'], JSON_UNESCAPED_UNICODE);
+                } elseif ($item['description'] === null || $item['description'] === '') {
+                    $item['description'] = null;
+                } else {
+                    $item['description'] = (string) $item['description'];
+                }
+            } else {
+                $item['description'] = null;
+            }
+
+            // Details: store as JSON string to avoid "Array to string conversion"
+            if (array_key_exists('details', $item)) {
+                if (is_array($item['details']) || is_object($item['details'])) {
+                    $item['details'] = json_encode($item['details'], JSON_UNESCAPED_UNICODE);
+                } elseif ($item['details'] === null || $item['details'] === '') {
+                    $item['details'] = json_encode(new \stdClass()); // "{}"
+                } else {
+                    // assume already-JSON or plain text; cast to string
+                    $item['details'] = (string) $item['details'];
+                }
+            } else {
+                $item['details'] = json_encode(new \stdClass());
+            }
+
+            // Row order + timestamps
+            $item['row_index']  = $index + 1;
+            $item['created_at'] = now();
+            $item['updated_at'] = now();
+        }
+        unset($item); // break reference
+
+        try {
+            DB::beginTransaction();
+
+            Product::insert($data);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'sheet'   => $sheetName,
+                'inserted_count' => count($data),
+                'message' => 'Successfully uploaded ' . count($data) . ' products',
+            ], 201);
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to upload: ' . $e->getMessage(),
+            ], 500);
+        }
     }
+
+
+
+    public function updateSheet(Request $request): JsonResponse
+    {
+        $validated = $request->validate([
+            'sheet' => 'required|string',
+            'data' => 'required|array',
+            'data.*.model' => 'required|string',
+            'data.*.price' => 'nullable|numeric',
+            'data.*.description' => 'nullable|string',
+            'data.*.sheet' => 'required|string',
+            'data.*.details' => 'nullable|array',
+        ]);
+
+        $sheetName = $validated['sheet'];
+        $data = $validated['data'];
+
+        // Check if sheet exists
+        $existingSheet = Product::where('sheet', $sheetName)->exists();
+
+        if (!$existingSheet) {
+            return response()->json([
+                'success' => false,
+                'message' => "Sheet '{$sheetName}' does not exist in database."
+            ], 404);
+        }
+
+        try {
+            DB::beginTransaction();
+
+            // Delete old data
+            $deletedCount = Product::where('sheet', $sheetName)->delete();
+
+            // Add row_index and timestamps
+            foreach ($data as $index => &$item) {
+                $item['row_index'] = $index + 1;
+                $item['created_at'] = now();
+                $item['updated_at'] = now();
+
+                // Ensure details is a valid JSON string
+                if (is_array($item['details'])) {
+                    $item['details'] = json_encode($item['details']);  // Ensure it's stored as a JSON string
+                }
+
+                // Ensure description is a string (in case it's an array or other type)
+                $item['description'] = (string) $item['description'];  // Ensure it's a string
+            }
+
+            // Insert new data
+            Product::insert($data);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => "Sheet '{$sheetName}' updated successfully",
+                'deleted_count' => $deletedCount,
+                'inserted_count' => count($data)
+            ], 200);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+
 
     public function deleteSheet(Request $request): JsonResponse
     {
@@ -242,187 +395,14 @@ class ProductController extends Controller
             'message' => "Deleted {$deleted} records from sheet '{$sheet}'"
         ]);
     }
+
+    public function getExistingSheets(): JsonResponse
+    {
+        $sheets = Product::select('sheet')->distinct()->orderBy('sheet')->pluck('sheet');
+
+        return response()->json([
+            'success' => true,
+            'data' => $sheets
+        ]);
+    }
 }
-
-// public function uploadsemuajson(Request $request): JsonResponse
-// {
-//     // Pakai path absolute kamu:
-//     $path = 'D:\work\pricelist\backend-pricelist\storage\app\public\products_refined.json';
-
-//     // Alternatif kalau mau pakai Storage (pastikan disk 'public' benar):
-//     // $path = \Storage::disk('public')->path('products_refined.json');
-
-//     if (!file_exists($path)) {
-//         return response()->json([
-//             'ok'      => false,
-//             'message' => "File tidak ditemukan di $path",
-//         ], 404);
-//     }
-
-//     $raw  = file_get_contents($path);
-//     $data = json_decode($raw, true);
-
-//     if (!is_array($data)) {
-//         return response()->json([
-//             'ok'      => false,
-//             'message' => 'Format JSON tidak valid atau bukan array root.',
-//         ], 422);
-//     }
-
-//     $perSheetCounter = [];
-//     $processed = 0;
-//     $errors = [];
-//     $created = 0;
-//     $updated = 0;
-
-//     foreach ($data as $idx => $item) {
-//         try {
-//             $sheet = $item['sheet'] ?? 'Unknown';
-//             $perSheetCounter[$sheet] = ($perSheetCounter[$sheet] ?? 0) + 1;
-//             $rowIndex = $perSheetCounter[$sheet];
-
-//             $details      = is_array($item['details'] ?? null) ? $item['details'] : [];
-//             $fallbackName = $item['nama_kode_model_produk'] ?? null;
-//             $model        = trim($this->extractModelName($details, $fallbackName));
-//             if ($model === '') {
-//                 $model = $fallbackName ? trim($fallbackName) : 'Unknown';
-//             }
-
-//             // --- Harga: urutan prioritas ---
-//             $price = null;
-
-//             // 1) harga_produk (numeric)
-//             if ($price === null && isset($item['harga_produk'])) {
-//                 $price = $this->parsePriceInt($item['harga_produk']);
-//             }
-
-//             // 2) details.PARTNER PRICE
-//             if ($price === null && isset($details['PARTNER PRICE'])) {
-//                 $price = $this->parsePriceInt($details['PARTNER PRICE']);
-//             }
-
-//             // 3) details.BOTTOM PRICE
-//             if ($price === null && isset($details['BOTTOM PRICE'])) {
-//                 $price = $this->parsePriceInt($details['BOTTOM PRICE']);
-//             }
-
-//             // 4) details.MSRP (sebagai fallback terakhir sebelum harga_raw)
-//             if ($price === null && isset($details['MSRP'])) {
-//                 $price = $this->parsePriceInt($details['MSRP']);
-//             }
-
-//             // 5) harga_raw
-//             if ($price === null && isset($item['harga_raw'])) {
-//                 $price = $this->parsePriceInt($item['harga_raw']);
-//             }
-
-//             // updateOrCreate by (sheet, model)
-//             $values = [
-//                 'row_index'   => $rowIndex,
-//                 'description' => $item['deskripsi'] ?? null,
-//                 'price'       => $price,
-//                 'details'     => $details,
-//             ];
-
-//             $existing = Product::where('sheet', $sheet)->where('model', $model)->first();
-//             if ($existing) {
-//                 $existing->update($values);
-//                 $updated++;
-//             } else {
-//                 Product::create(array_merge([
-//                     'sheet' => $sheet,
-//                     'model' => $model,
-//                 ], $values));
-//                 $created++;
-//             }
-
-//             $processed++;
-//         } catch (\Throwable $e) {
-//             $errors[] = [
-//                 'index'   => $idx,
-//                 'sheet'   => $item['sheet'] ?? null,
-//                 'rawName' => $item['nama_kode_model_produk'] ?? null,
-//                 'error'   => $e->getMessage(),
-//             ];
-//         }
-//     }
-
-//     return response()->json([
-//         'ok'              => true,
-//         'message'         => 'Import selesai.',
-//         'path_used'       => $path,
-//         'total_processed' => $processed,
-//         'created'         => $created,
-//         'updated'         => $updated,
-//         'by_sheet'        => $perSheetCounter,
-//         'errors'          => $errors,
-//     ]);
-// }
-
-// /**
-//  * Ambil nama model dari details (ORDER MODEL, MODEL, TYPE, PART, PART NUMBER, TITLE, NAME).
-//  * fallback ke nama_kode_model_produk jika tidak ada.
-//  */
-// private function extractModelName(array $details, ?string $fallbackName): string
-// {
-//     $normalized = [];
-//     foreach ($details as $k => $v) {
-//         $normalized[mb_strtoupper(trim((string) $k))] = is_string($v) ? trim($v) : $v;
-//     }
-
-//     $candidates = [
-//         'ORDER MODEL',
-//         'MODEL',
-//         'TYPE',
-//         'PART',
-//         'PART NUMBER',
-//         'TITLE',
-//         'NAME',
-//     ];
-
-//     foreach ($candidates as $key) {
-//         if (!empty($normalized[$key]) && is_string($normalized[$key])) {
-//             return $normalized[$key];
-//         }
-//     }
-
-//     return $fallbackName ? trim($fallbackName) : 'Unknown';
-// }
-
-// /**
-//  * Normalisasi harga ke integer (rupiah):
-//  * - Menerima int/float/string
-//  * - Menghapus simbol (Rp, IDR), spasi, koma/titik pemisah
-//  * - "123.456.789" -> 123456789, "47,080,000" -> 47080000
-//  */
-// private function parsePriceInt($value): ?int
-// {
-//     if ($value === null) {
-//         return null;
-//     }
-
-//     // Jika sudah numeric "bersih"
-//     if (is_int($value)) {
-//         return $value;
-//     }
-//     if (is_float($value)) {
-//         return (int) round($value);
-//     }
-
-//     // String: buang semua karakter non-digit
-//     if (is_string($value)) {
-//         // hilangkan Rp, IDR, spasi
-//         $clean = preg_replace('/[^\d]/', '', $value);
-//         if ($clean === '' || $clean === null) {
-//             return null;
-//         }
-//         // Hindari integer overflow tidak realistis (opsional)
-//         // Misal panjang > 12 digit dianggap tidak valid
-//         if (strlen($clean) > 12) {
-//             return null;
-//         }
-//         return (int) $clean;
-//     }
-
-//     return null;
-// }
