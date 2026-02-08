@@ -73,7 +73,7 @@ const api = {
       fetch(`${BASE_URL}/api/users/delete/${id}`, { method: "DELETE" }),
   },
   sheets: async (): Promise<ApiList<Product[]>> => {
-    const r = await fetch(`${BASE_URL}/products/read?page=1&per_page=10000`);
+    const r = await fetch(`${BASE_URL}/api/products/read?page=1&per_page=10000`);
     if (!r.ok) throw new Error(String(r.status));
     return (await r.json()) as ApiList<Product[]>;
   },

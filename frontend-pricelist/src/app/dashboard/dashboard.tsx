@@ -178,7 +178,7 @@ export default function Dashboard() {
 
         // 1) total products -> WEB route (no /api)
         const totalRes = await fetch(
-          `${BASE_URL}/products/read?per_page=1&page=1`,
+          `${BASE_URL}/api/products/read?per_page=1&page=1`,
           { headers }
         );
         if (!totalRes.ok)
@@ -190,7 +190,7 @@ export default function Dashboard() {
         // 2) sample products for aggregation -> WEB route (no /api)
         const SAMPLE_SIZE = 200;
         const sampleRes = await fetch(
-          `${BASE_URL}/products/read?per_page=${SAMPLE_SIZE}&page=1`,
+          `${BASE_URL}/api/products/read?per_page=${SAMPLE_SIZE}&page=1`,
           { headers }
         );
         if (!sampleRes.ok)

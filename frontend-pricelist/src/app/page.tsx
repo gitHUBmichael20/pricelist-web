@@ -48,8 +48,8 @@ export default function Dashboard() {
   const pageItems = [
     { key: "products", label: "List Products", icon: "inventory_2" },
     { key: "userList", label: "User List", icon: "people" },
-    { key: "settings", label: "Settings", icon: "settings" },
     { key: "organize", label: "Organize", icon: "folder" }, // New "Organize" option with the "folder" icon
+    { key: "settings", label: "Settings", icon: "settings" },
   ];
 
   const handleMenuClick = (key: string) => {

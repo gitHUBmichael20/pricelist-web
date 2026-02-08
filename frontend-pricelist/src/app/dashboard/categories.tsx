@@ -1,8 +1,14 @@
 "use client";
 
 import { useState, useEffect, useMemo } from "react";
-import { ChevronLeftIcon, FolderIcon } from "@heroicons/react/24/outline";
-import { BASE_URL } from "@/config/api";
+import {
+  ChevronLeftIcon,
+  FolderIcon,
+  TrashIcon,
+  MagnifyingGlassIcon,
+} from "@heroicons/react/24/outline";
+
+const BASE_URL = "http://localhost:8000";
 
 type PriceLike = string | number | null | undefined;
 
@@ -91,17 +97,27 @@ export default function Categories() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [showDeleteManager, setShowDeleteManager] = useState(false);
+  const [selectedForDeletion, setSelectedForDeletion] = useState<string[]>([]);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const totalProducts = useMemo(
     () => categories.reduce((s, c) => s + c.count, 0),
     [categories]
   );
 
+  const filteredCategories = useMemo(() => {
+    if (!searchQuery.trim()) return categories;
+    const q = searchQuery.toLowerCase();
+    return categories.filter((c) => c.sheet.toLowerCase().includes(q));
+  }, [categories, searchQuery]);
+
   const fetchCategories = async () => {
     try {
       setLoading(true);
       setError(null);
-      const r = await fetch(`${BASE_URL}/products/read?page=1&per_page=10000`);
+      const r = await fetch(`${BASE_URL}/products/categories`);
       if (!r.ok) throw new Error(String(r.status));
       const data: ApiResponse = await r.json();
       if (!data.success || !Array.isArray(data.data))
@@ -134,6 +150,78 @@ export default function Categories() {
     }
   };
 
+  const handleDeleteCategories = async () => {
+    if (selectedForDeletion.length === 0) {
+      alert("Please select at least one category to delete");
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Are you sure you want to delete ${selectedForDeletion.length} categor${
+        selectedForDeletion.length === 1 ? "y" : "ies"
+      }?\n\n${selectedForDeletion.join(", ")}\n\nThis action cannot be undone.`
+    );
+
+    if (!confirmed) return;
+
+    setIsDeleting(true);
+    try {
+      const deletePromises = selectedForDeletion.map(async (sheet) => {
+        const response = await fetch(`${BASE_URL}/api/products/delete-sheet`, {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ sheet }),
+        });
+
+        if (!response.ok) {
+          const data = await response.json();
+          throw new Error(data.message || `Failed to delete ${sheet}`);
+        }
+
+        return response.json();
+      });
+
+      await Promise.all(deletePromises);
+
+      alert(
+        `Successfully deleted ${selectedForDeletion.length} categor${
+          selectedForDeletion.length === 1 ? "y" : "ies"
+        }`
+      );
+      setSelectedForDeletion([]);
+      setShowDeleteManager(false);
+      await fetchCategories();
+    } catch (error) {
+      console.error("Delete error:", error);
+      alert(
+        `Error: ${
+          error instanceof Error
+            ? error.message
+            : "Failed to delete categories. Check backend connection."
+        }`
+      );
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const toggleCategorySelection = (sheet: string) => {
+    setSelectedForDeletion((prev) =>
+      prev.includes(sheet) ? prev.filter((s) => s !== sheet) : [...prev, sheet]
+    );
+  };
+
+  const selectAllFiltered = () => {
+    const allFiltered = filteredCategories.map((c) => c.sheet);
+    setSelectedForDeletion(allFiltered);
+  };
+
+  const clearSelection = () => {
+    setSelectedForDeletion([]);
+  };
+
   useEffect(() => {
     fetchCategories();
   }, []);
@@ -162,17 +250,160 @@ export default function Categories() {
     );
   }
 
-  if (!selectedCategory) {
+  // Delete Manager View
+  if (showDeleteManager) {
     return (
       <div className="min-h-screen bg-gray-100">
         <div className="container mx-auto px-4 py-8">
           <div className="mb-6">
+            <button
+              onClick={() => {
+                setShowDeleteManager(false);
+                setSelectedForDeletion([]);
+                setSearchQuery("");
+              }}
+              className="flex items-center text-blue-600 hover:text-blue-700 mb-3 text-sm"
+            >
+              <ChevronLeftIcon className="h-4 w-4 mr-1" />
+              Back to Categories
+            </button>
             <h1 className="text-3xl font-bold text-gray-800">
-              Product Categories
+              Delete Categories
             </h1>
             <p className="text-sm text-gray-600 mt-2">
-              {categories.length} categories • {totalProducts} total products
+              Select categories you want to delete
             </p>
+          </div>
+
+          <div className="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div className="flex items-center gap-4 mb-4">
+              <div className="flex-1 relative">
+                <MagnifyingGlassIcon className="h-5 w-5 absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search categories..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+              </div>
+              <button
+                onClick={selectAllFiltered}
+                disabled={filteredCategories.length === 0}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Select All
+              </button>
+              <button
+                onClick={clearSelection}
+                disabled={selectedForDeletion.length === 0}
+                className="px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Clear All
+              </button>
+            </div>
+
+            <div className="mb-4">
+              <p className="text-sm text-gray-600">
+                Selected:{" "}
+                <span className="font-semibold text-gray-900">
+                  {selectedForDeletion.length}
+                </span>{" "}
+                / {filteredCategories.length}
+              </p>
+            </div>
+
+            <div className="max-h-96 overflow-y-auto border border-gray-300 rounded-lg">
+              {filteredCategories.length === 0 ? (
+                <div className="p-8 text-center text-gray-500">
+                  No categories found matching &quot;{searchQuery}&quot;
+                </div>
+              ) : (
+                filteredCategories.map((c) => (
+                  <label
+                    key={c.sheet}
+                    className="flex items-center p-4 hover:bg-gray-50 border-b border-gray-200 last:border-b-0 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedForDeletion.includes(c.sheet)}
+                      onChange={() => toggleCategorySelection(c.sheet)}
+                      className="w-5 h-5 rounded border-gray-300 text-red-600 focus:ring-red-500 mr-4"
+                    />
+                    <div className="flex-1">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-gray-900">
+                          {c.sheet}
+                        </span>
+                        <span className="text-sm text-gray-600">
+                          {c.count} products
+                        </span>
+                      </div>
+                      <div className="mt-1 text-xs text-gray-500">
+                        {c.products
+                          .slice(0, 2)
+                          .map((p) => p.model)
+                          .join(", ")}
+                        {c.count > 2 && `, +${c.count - 2} more`}
+                      </div>
+                    </div>
+                  </label>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="flex gap-4">
+            <button
+              onClick={() => {
+                setShowDeleteManager(false);
+                setSelectedForDeletion([]);
+                setSearchQuery("");
+              }}
+              disabled={isDeleting}
+              className="flex-1 px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDeleteCategories}
+              disabled={selectedForDeletion.length === 0 || isDeleting}
+              className="flex-1 px-6 py-3 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+            >
+              <TrashIcon className="h-5 w-5" />
+              {isDeleting
+                ? "Deleting..."
+                : `Delete ${selectedForDeletion.length} Categor${
+                    selectedForDeletion.length === 1 ? "y" : "ies"
+                  }`}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Category List View
+  if (!selectedCategory) {
+    return (
+      <div className="min-h-screen bg-gray-100">
+        <div className="container mx-auto px-4 py-8">
+          <div className="mb-6 flex justify-between items-center">
+            <div>
+              <h1 className="text-3xl font-bold text-gray-800">
+                Product Categories
+              </h1>
+              <p className="text-sm text-gray-600 mt-2">
+                {categories.length} categories • {totalProducts} total products
+              </p>
+            </div>
+            <button
+              onClick={() => setShowDeleteManager(true)}
+              className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors flex items-center gap-2"
+            >
+              <TrashIcon className="h-5 w-5" />
+              Manage Deletions
+            </button>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {categories.map((c) => (
@@ -217,6 +448,7 @@ export default function Categories() {
     );
   }
 
+  // Product List View
   return (
     <div className="min-h-screen bg-gray-100">
       <div className="container mx-auto px-4 py-8">
@@ -356,3 +588,4 @@ export default function Categories() {
     </div>
   );
 }
+  

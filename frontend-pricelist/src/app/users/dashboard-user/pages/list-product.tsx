@@ -3,6 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { BASE_URL } from "@/config/api";
 
+/** -----------------------------
+ * Types
+ * ----------------------------- */
 type Details = Record<string, string | number>;
 
 type Product = {
@@ -15,6 +18,14 @@ type Product = {
 
 type ApiProduct = Omit<Product, "details"> & { details: unknown };
 
+/** -----------------------------
+ * Helpers
+ * ----------------------------- */
+
+// Case-insensitive match for any key containing "dpp"
+const HIDDEN_DETAIL_KEY = /\bdpp\b/i;
+
+// Minimal type guard for details
 const isDetails = (x: unknown): x is Details =>
   !!x &&
   typeof x === "object" &&
@@ -22,16 +33,35 @@ const isDetails = (x: unknown): x is Details =>
     ([, v]) => typeof v === "string" || typeof v === "number"
   );
 
+// Sanitize an object by:
+// - Removing any keys that look like DPP (e.g., "DPP", "Price List (IDR) to DPP")
+// - Keeping only string/number values
+const sanitizeDetails = (x: unknown): Details => {
+  if (!x || typeof x !== "object") return {};
+  const out: Details = {};
+  for (const [k, v] of Object.entries(x as Record<string, unknown>)) {
+    if (HIDDEN_DETAIL_KEY.test(k)) continue; // hide DPP-related keys
+    if (typeof v === "string" || typeof v === "number") {
+      out[k] = v;
+    } else if (v != null) {
+      // Coerce other primitives to string if needed
+      out[k] = String(v);
+    }
+  }
+  return out;
+};
+
+// Safe parse that also sanitizes (removes DPP keys)
 const safeParseDetails = (input: unknown): Details => {
   if (typeof input === "string") {
     try {
       const parsed: unknown = JSON.parse(input || "{}");
-      return isDetails(parsed) ? parsed : {};
+      return sanitizeDetails(parsed);
     } catch {
       return {};
     }
   }
-  return isDetails(input) ? input : {};
+  return sanitizeDetails(input);
 };
 
 // type-safe AbortError checker
@@ -42,6 +72,13 @@ const isAbortError = (err: unknown): boolean => {
   return err instanceof Error && err.name === "AbortError";
 };
 
+// Pretty field labels
+const formatKey = (key: string) =>
+  key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
+
+/** -----------------------------
+ * Component
+ * ----------------------------- */
 export default function ListProduct() {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
@@ -93,7 +130,7 @@ export default function ListProduct() {
       try {
         const token = sessionStorage.getItem("token") || "";
         const res = await fetch(
-          `${BASE_URL}/products/read?sheet=${encodeURIComponent(
+          `${BASE_URL}/api/products/read?sheet=${encodeURIComponent(
             selectedSheet
           )}`,
           {
@@ -115,7 +152,7 @@ export default function ListProduct() {
         const normalized: Product[] = Array.isArray(data?.data)
           ? data.data.map((p: ApiProduct) => ({
               ...p,
-              details: safeParseDetails(p.details),
+              details: safeParseDetails(p.details), // ← sanitize here so DPP never shows up
             }))
           : [];
 
@@ -134,9 +171,6 @@ export default function ListProduct() {
       abortRef.current?.abort();
     };
   }, [selectedSheet]);
-
-  const formatKey = (key: string) =>
-    key.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 
   const filteredProducts = useMemo(() => {
     const q = searchQuery.toLowerCase();
@@ -236,6 +270,7 @@ export default function ListProduct() {
                   </p>
                 )}
 
+                {/* Top 2 non-DPP details already sanitized at parse-time */}
                 <div className="space-y-1 mb-4 flex-grow">
                   {Object.entries(product.details)
                     .slice(0, 2)
@@ -288,6 +323,7 @@ export default function ListProduct() {
                 ×
               </button>
             </div>
+
             <div className="p-4 overflow-y-auto flex-1">
               {selectedProduct.description && (
                 <div className="mb-4">

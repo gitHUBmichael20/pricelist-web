@@ -33,22 +33,26 @@ type ApiResponse = {
 
 const formatRupiah = (n: number) => `Rp ${n.toLocaleString("id-ID")}`;
 
+/**
+ * Robust IDR parser:
+ * - Strips currency labels (rp, idr), spaces, dots, commas, etc.
+ * - Keeps digits only and parses as integer (IDR doesn't need decimals).
+ * - Returns null if nothing parsable.
+ */
 const parseRupiahLoose = (
   v: string | number | null | undefined
 ): number | null => {
   if (v == null) return null;
   if (typeof v === "number" && Number.isFinite(v)) return Math.round(v);
   if (typeof v !== "string") return null;
-  let s = v.trim().replace(/(rp|idr|\s)/gi, "");
-  if (!s) return null;
-  if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(s))
-    s = s.replace(/\./g, "").replace(/,\d+$/, "");
-  else if (/^\d+(,\d+)?$/.test(s)) s = s.replace(",", ".");
-  else if (!/^\d+(\.\d+)?$/.test(s)) s = s.replace(/[^\d]/g, "");
-  if (!s) return null;
-  if (s.length > 12) s = s.slice(0, 12);
-  const n = Number(s);
-  return Number.isFinite(n) ? Math.round(n) : null;
+
+  const s = v.toLowerCase().replace(/rp|idr|\s/g, ""); // normalize
+  const digits = s.replace(/[^\d]/g, ""); // keep digits only
+  if (!digits) return null;
+
+  const clipped = digits.slice(0, 15); // guard against absurdly long strings
+  const n = Number(clipped);
+  return Number.isFinite(n) ? n : null;
 };
 
 const PRICE_KEYS = new Set([
@@ -70,15 +74,22 @@ const getDetail = (d: Details, key: string): string | number | null => {
 
 const pickMainPrice = (p: Product): number | null => {
   const d = p.details || {};
+
+  // Prefer DPP
   for (const k of [
     "Price List (IDR) to DPP",
     "Price List (IDR) To DPP",
     "DPP",
   ]) {
     const n = parseRupiahLoose(getDetail(d, k));
-    if (n) return n;
+    if (n != null) return n;
   }
-  if (typeof p.price === "number" && p.price > 0) return p.price;
+
+  // Fallback to product.price if present
+  if (typeof p.price === "number" && Number.isFinite(p.price) && p.price >= 0)
+    return Math.round(p.price);
+
+  // Then MSRP/others
   for (const k of [
     "Price List (IDR) MSRP",
     "MSRP",
@@ -88,8 +99,9 @@ const pickMainPrice = (p: Product): number | null => {
     "Bottom Price",
   ]) {
     const n = parseRupiahLoose(getDetail(d, k));
-    if (n) return n;
+    if (n != null) return n;
   }
+
   return null;
 };
 
@@ -133,7 +145,7 @@ export default function ProductList() {
           per_page: "20",
           ...(isSearch ? { q: debouncedSearch } : {}),
         });
-        const url = `${BASE_URL}/products/${
+        const url = `${BASE_URL}/api/products/${
           isSearch ? "search" : "read"
         }?${params}`;
         const res = await fetch(url);
@@ -141,6 +153,7 @@ export default function ProductList() {
         const data: ApiResponse = await res.json();
         if (!data.success || !Array.isArray(data.data))
           throw new Error("Invalid payload");
+
         const normalized = data.data.map((p) => ({
           ...p,
           details: coerceDetails(
@@ -149,6 +162,7 @@ export default function ProductList() {
               : p.details
           ),
         }));
+
         setProducts(normalized);
         setPagination(data.pagination);
       } catch {
@@ -360,6 +374,7 @@ export default function ProductList() {
                   ✕
                 </button>
               </div>
+
               {(() => {
                 const n = pickMainPrice(selectedProduct);
                 return n != null ? (
@@ -368,25 +383,29 @@ export default function ProductList() {
                   </p>
                 ) : null;
               })()}
+
               {selectedProduct.description && (
                 <p className="text-gray-700 mb-4">
                   {selectedProduct.description}
                 </p>
               )}
+
               <div className="space-y-3">
                 {Object.entries(selectedProduct.details || {}).map(([k, v]) => {
-                  const n = isPriceKey(k)
+                  const parsed = isPriceKey(k)
                     ? parseRupiahLoose(getDetail(selectedProduct.details, k))
                     : null;
+                  const isParsed = parsed != null;
+
                   return (
                     <div key={k} className="flex justify-between gap-3">
                       <span className="text-gray-600">{k}</span>
                       <span
                         className={`font-medium text-right ${
-                          n ? "text-green-700" : "text-gray-800"
+                          isParsed ? "text-green-700" : "text-gray-800"
                         }`}
                       >
-                        {n ? formatRupiah(n) : safeString(v)}
+                        {isParsed ? formatRupiah(parsed!) : safeString(v)}
                       </span>
                     </div>
                   );

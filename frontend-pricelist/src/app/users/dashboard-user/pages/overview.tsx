@@ -170,7 +170,7 @@ export default function OverviewPage() {
         const SAMPLE_PER_SHEET = 100; // sesuaikan kebutuhan
         const totalsPromises = list.map(async (sheet) => {
           const r = await fetch(
-            `${BASE_URL}/products/read?per_page=1&page=1&sheet=${encodeURIComponent(
+            `${BASE_URL}/api/products/read?per_page=1&page=1&sheet=${encodeURIComponent(
               sheet
             )}`,
             { headers }
@@ -183,7 +183,7 @@ export default function OverviewPage() {
 
         const samplesPromises = list.map(async (sheet) => {
           const r = await fetch(
-            `${BASE_URL}/products/read?per_page=${SAMPLE_PER_SHEET}&page=1&sheet=${encodeURIComponent(
+            `${BASE_URL}/api/products/read?per_page=${SAMPLE_PER_SHEET}&page=1&sheet=${encodeURIComponent(
               sheet
             )}`,
             { headers }
